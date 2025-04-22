@@ -51,7 +51,7 @@ libprintf_dialect.so: $(PLUGIN_OBJECTS)
 
 .PHONY: test
 test: libprintf_dialect.so
-	@echo "Running coord dialect tests..."
+	@echo "Running printf dialect tests..."
 	./venv/bin/lit tests
 
 clean:

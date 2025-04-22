@@ -14,23 +14,20 @@ void printfRegisterDialect(MlirContext context) {
   unwrap(context)->loadDialect<PrintfDialect>();
 }
 
-MlirOperation printfBuildPrintfOp(MlirLocation loc, MlirStringRef fmtString,
-                                  MlirValue *args, intptr_t numArgs) {
+MlirOperation printfPrintfOpCreate(MlirLocation loc, MlirValue format,
+                                   MlirValue *varArgs, intptr_t numVarArgs) {
   MLIRContext *context = unwrap(loc)->getContext();
   OpBuilder builder(context);
 
-  // Convert C strings to MLIR attributes and values
-  auto fmtAttr = builder.getStringAttr(
-      StringRef(fmtString.data, fmtString.length));
-
   SmallVector<Value> operands;
-  for (intptr_t i = 0; i < numArgs; ++i)
-    operands.push_back(unwrap(args[i]));
+  operands.push_back(unwrap(format));
+  for (intptr_t i = 0; i < numVarArgs; ++i)
+    operands.push_back(unwrap(varArgs[i]));
 
   auto resultType = builder.getI32Type();
 
   auto printfOp = builder.create<printf::PrintfOp>(
-      unwrap(loc), resultType, fmtAttr, operands);
+      unwrap(loc), resultType, operands);
 
   return wrap(printfOp.getOperation());
 }

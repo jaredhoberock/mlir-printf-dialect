@@ -12,8 +12,8 @@ extern "C" {
 void printfRegisterDialect(MlirContext ctx);
 
 /// Creates a printf.printf operation.
-MlirOperation printfBuildPrintfOp(MlirLocation loc, MlirStringRef fmtString,
-                                  MlirValue *args, intptr_t numArgs);
+MlirOperation printfPrintfOpCreate(MlirLocation loc, MlirValue format,
+                                   MlirValue *varArgs, intptr_t numVarArgs);
 
 #ifdef __cplusplus
 }

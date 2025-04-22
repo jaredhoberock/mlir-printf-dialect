@@ -3,6 +3,7 @@
 #include "Lowering.hpp"
 #include <llvm/ADT/STLExtras.h>
 #include <mlir/Conversion/ConvertToLLVM/ToLLVMInterface.h>
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/OpImplementation.h>
 

@@ -2,6 +2,7 @@
 #include "Lowering.hpp"
 #include "Ops.hpp"
 #include <mlir/Conversion/LLVMCommon/TypeConverter.h>
+#include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Transforms/DialectConversion.h>
 
@@ -31,32 +32,6 @@ static FlatSymbolRefAttr getOrInsertPrintf(ModuleOp module,
 }
 
 
-static Value getOrCreateGlobalString(Location loc, OpBuilder &builder,
-                                     StringRef name, StringRef value,
-                                     ModuleOp module) {
-  // Create the global at the entry of the module.
-  LLVM::GlobalOp global;
-  if (!(global = module.lookupSymbol<LLVM::GlobalOp>(name))) {
-    OpBuilder::InsertionGuard insertGuard(builder);
-    builder.setInsertionPointToStart(module.getBody());
-    auto type = LLVM::LLVMArrayType::get(
-        IntegerType::get(builder.getContext(), 8), value.size());
-    global = builder.create<LLVM::GlobalOp>(loc, type, /*isConstant=*/true,
-                                            LLVM::Linkage::Internal, name,
-                                            builder.getStringAttr(value),
-                                            /*alignment=*/0);
-  }
-
-  // Get the pointer to the first character in the global string.
-  Value globalPtr = builder.create<LLVM::AddressOfOp>(loc, global);
-  Value cst0 = builder.create<LLVM::ConstantOp>(loc, builder.getI64Type(),
-                                                builder.getIndexAttr(0));
-  return builder.create<LLVM::GEPOp>(
-      loc, LLVM::LLVMPointerType::get(builder.getContext()), global.getType(),
-      globalPtr, ArrayRef<Value>({cst0, cst0}));
-}
-
-
 struct PrintfOpLowering : OpConversionPattern<PrintfOp> {
   using OpConversionPattern::OpConversionPattern;
 
@@ -66,16 +41,22 @@ struct PrintfOpLowering : OpConversionPattern<PrintfOp> {
     Location loc = op.getLoc();
     ModuleOp module = op->getParentOfType<ModuleOp>();
   
-    // Get or insert the declaration of `printf`.
+    // get or insert the declaration of `printf`.
     FlatSymbolRefAttr printfRef = getOrInsertPrintf(module, rewriter);
   
-    // Convert the format string attribute into a global constant.
-    StringRef fmtStr = op.getFormatString();
-    Value formatStrPtr = getOrCreateGlobalString(loc, rewriter, "format_str", fmtStr, module);
+    // use lowered format string operand
+    Value formatDescriptor = adaptor.getFormat();
+    auto ptrTy = LLVM::LLVMPointerType::get(rewriter.getContext());
+
+    // extract the underlying aligned data pointer from the memref descriptor
+    // which is stored in field 1
+    SmallVector<int64_t> indices = {1};
+    Value formatPtr = rewriter.create<LLVM::ExtractValueOp>(
+        loc, ptrTy, adaptor.getFormat(), indices);
   
     // Build the operands list: first the format string, then any other args
     SmallVector<Value> operands;
-    operands.push_back(formatStrPtr);
+    operands.push_back(formatPtr);
     operands.append(adaptor.getArgs().begin(), adaptor.getArgs().end());
   
     // Emit the call
@@ -93,6 +74,8 @@ struct PrintfOpLowering : OpConversionPattern<PrintfOp> {
 
 void populatePrintfToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, RewritePatternSet& patterns) {
   patterns.add<PrintfOpLowering>(typeConverter, patterns.getContext());
+
+  populateFinalizeMemRefToLLVMConversionPatterns(typeConverter, patterns);
 }
 
 }

@@ -7,6 +7,10 @@ def PrintfDialect : Dialect {
   let name = "printf";
   let summary = "A dialect for calling printf";
   let cppNamespace = "::mlir::printf";
+
+  let dependentDialects = [
+    "mlir::memref::MemRefDialect"
+  ];
 }
 
 #endif // PRINTF_DIALECT_TD

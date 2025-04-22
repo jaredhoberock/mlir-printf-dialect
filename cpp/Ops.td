@@ -6,18 +6,19 @@ include "Dialect.td"
 
 def PrintfOp : Op<PrintfDialect, "printf"> {
   let summary = "Calls C printf with a format string and arguments";
+
   let description = [{
-    Emits a call to the C `printf` function. The first operand must be a memref (or pointer)
-    to a constant format string. Remaining operands are the arguments to be formatted.
+    Calls the C `printf` function. The `format` operand must be a memref pointing to a null-terminated string of i8s.
+    The remaining operands are variadic and correspond to format string arguments.
 
     Example:
-      printf.printf %format_string, %arg1, %arg2 : memref<?xi8>, i32, f64
+      printf.printf(%format, %x) : (memref<?xi8>, i32) -> i32
   }];
 
-  let arguments = (ins StrAttr:$format_string, Variadic<AnyType>:$args);
+  let arguments = (ins MemRefOf<[I8]>:$format, Variadic<AnyType>:$args);
   let results = (outs I32:$result);
 
-  let assemblyFormat = "$format_string (`,` $args^ `:` type($args))? attr-dict `:` type(results)";
+  let assemblyFormat = "`(` $format (`,` $args^)? `)` attr-dict `:` functional-type(operands, results)";
 }
 
 #endif // PRINTF_OPS_TD

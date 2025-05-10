@@ -1,6 +1,7 @@
 #include "Dialect.hpp"
 #include "Lowering.hpp"
 #include "Ops.hpp"
+#include <mlir/Conversion/LLVMCommon/MemRefBuilder.h>
 #include <mlir/Conversion/LLVMCommon/TypeConverter.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
@@ -43,16 +44,10 @@ struct PrintfOpLowering : OpConversionPattern<PrintfOp> {
   
     // get or insert the declaration of `printf`.
     FlatSymbolRefAttr printfRef = getOrInsertPrintf(module, rewriter);
-  
-    // use lowered format string operand
-    Value formatDescriptor = adaptor.getFormat();
-    auto ptrTy = LLVM::LLVMPointerType::get(rewriter.getContext());
 
-    // extract the underlying aligned data pointer from the memref descriptor
-    // which is stored in field 1
-    SmallVector<int64_t> indices = {1};
-    Value formatPtr = rewriter.create<LLVM::ExtractValueOp>(
-        loc, ptrTy, adaptor.getFormat(), indices);
+    // extract the aligned pointer of the foramt string from memref descriptor
+    MemRefDescriptor formatDesc(adaptor.getFormat());
+    Value formatPtr = formatDesc.alignedPtr(rewriter, loc);
   
     // Build the operands list: first the format string, then any other args
     SmallVector<Value> operands;

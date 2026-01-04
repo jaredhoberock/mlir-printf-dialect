@@ -4,27 +4,33 @@
 #include <mlir/Conversion/LLVMCommon/MemRefBuilder.h>
 #include <mlir/Conversion/LLVMCommon/TypeConverter.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
+#include <mlir/Dialect/GPU/IR/GPUDialect.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/LLVMIR/NVVMDialect.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 namespace mlir::printf {
 
-// Create a function declaration for printf, the signature is:
-//   * `i32 (i8*, ...)`
+// @printf's type: (ptr, ...) -> i32
 static LLVM::LLVMFunctionType getPrintfType(MLIRContext *context) {
   auto llvmI32Ty = IntegerType::get(context, 32);
   auto llvmPtrTy = LLVM::LLVMPointerType::get(context);
-  auto llvmFnType = LLVM::LLVMFunctionType::get(llvmI32Ty, llvmPtrTy, /*isVarArg=*/true);
-  return llvmFnType;
+  return LLVM::LLVMFunctionType::get(llvmI32Ty, llvmPtrTy, /*isVarArg=*/true);
 }
 
-static FlatSymbolRefAttr getOrInsertPrintf(ModuleOp module, 
+// @vprintf's type: (ptr, ptr) -> i32
+static LLVM::LLVMFunctionType getVprintfType(MLIRContext *context) {
+  auto llvmI32Ty = IntegerType::get(context, 32);
+  auto llvmPtrTy = LLVM::LLVMPointerType::get(context);
+  return LLVM::LLVMFunctionType::get(llvmI32Ty, {llvmPtrTy, llvmPtrTy}, /*isVarArg=*/false);
+}
+
+static FlatSymbolRefAttr getOrInsertPrintf(ModuleOp module,
                                            ConversionPatternRewriter &rewriter) {
   auto *context = module.getContext();
   if (module.lookupSymbol<LLVM::LLVMFuncOp>("printf"))
     return SymbolRefAttr::get(context, "printf");
 
-  // Insert the printf function into the body of the parent module.
   PatternRewriter::InsertionGuard insertGuard(rewriter);
   rewriter.setInsertionPointToStart(module.getBody());
   rewriter.create<LLVM::LLVMFuncOp>(module.getLoc(), "printf",
@@ -32,43 +38,107 @@ static FlatSymbolRefAttr getOrInsertPrintf(ModuleOp module,
   return SymbolRefAttr::get(context, "printf");
 }
 
+static FlatSymbolRefAttr getOrInsertVprintf(gpu::GPUModuleOp gpuModule,
+                                            ConversionPatternRewriter &rewriter) {
+  auto *context = gpuModule.getContext();
+  if (gpuModule.lookupSymbol<LLVM::LLVMFuncOp>("vprintf"))
+    return SymbolRefAttr::get(context, "vprintf");
 
-struct PrintfOpLowering : OpConversionPattern<PrintfOp> {
+  PatternRewriter::InsertionGuard insertGuard(rewriter);
+  rewriter.setInsertionPointToStart(gpuModule.getBody());
+  rewriter.create<LLVM::LLVMFuncOp>(gpuModule.getLoc(), "vprintf",
+                                    getVprintfType(context));
+  return SymbolRefAttr::get(context, "vprintf");
+}
+
+/// Host lowering: printf.printf -> llvm.call @printf
+struct PrintfOpHostLowering : OpConversionPattern<PrintfOp> {
   using OpConversionPattern::OpConversionPattern;
 
   LogicalResult
   matchAndRewrite(PrintfOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (op->getParentOfType<gpu::GPUModuleOp>())
+      return rewriter.notifyMatchFailure(op, "inside a gpu.module");
+
     Location loc = op.getLoc();
     ModuleOp module = op->getParentOfType<ModuleOp>();
-  
-    // get or insert the declaration of `printf`.
     FlatSymbolRefAttr printfRef = getOrInsertPrintf(module, rewriter);
 
-    // extract the aligned pointer of the foramt string from memref descriptor
     MemRefDescriptor formatDesc(adaptor.getFormat());
     Value formatPtr = formatDesc.alignedPtr(rewriter, loc);
-  
-    // Build the operands list: first the format string, then any other args
+
     SmallVector<Value> operands;
     operands.push_back(formatPtr);
     operands.append(adaptor.getArgs().begin(), adaptor.getArgs().end());
-  
-    // Emit the call
+
     auto callOp = rewriter.create<LLVM::CallOp>(
-        loc,
-        getPrintfType(rewriter.getContext()),
-        printfRef,
-        operands);
-  
-    // Replace the original op
+        loc, getPrintfType(rewriter.getContext()), printfRef, operands);
+    rewriter.replaceOp(op, callOp.getResult());
+    return success();
+  }
+};
+
+/// NVVM lowering: printf.printf -> llvm.call @vprintf
+struct PrintfOpNVVMLowering : OpConversionPattern<PrintfOp> {
+  using OpConversionPattern::OpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(PrintfOp op, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    auto gpuModule = op->getParentOfType<gpu::GPUModuleOp>();
+    if (!gpuModule)
+      return rewriter.notifyMatchFailure(op, "not inside a gpu.module");
+
+    // only match if there's exactly one target and it's NVVM
+    // XXX TODO: how exactly are we supposed to match in a multitarget module?
+    //           when exactly does our pattern get run?
+    auto targets = gpuModule.getTargetsAttr();
+    if (!targets || targets.size() != 1 || !isa<NVVM::NVVMTargetAttr>(targets[0]))
+      return rewriter.notifyMatchFailure(op, "gpu.module does not unambiguously target NVVM");
+
+    Location loc = op.getLoc();
+    auto *context = rewriter.getContext();
+    FlatSymbolRefAttr vprintfRef = getOrInsertVprintf(gpuModule, rewriter);
+
+    MemRefDescriptor formatDesc(adaptor.getFormat());
+    Value formatPtr = formatDesc.alignedPtr(rewriter, loc);
+
+    Value argsPtr;
+    if (adaptor.getArgs().empty()) {
+      argsPtr = rewriter.create<LLVM::ZeroOp>(loc, LLVM::LLVMPointerType::get(context));
+    } else {
+      SmallVector<Type> argTypes;
+      for (Value arg : adaptor.getArgs()) {
+        argTypes.push_back(arg.getType());
+      }
+      auto structTy = LLVM::LLVMStructType::getLiteral(context, argTypes);
+
+      Value one = rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI64Type(), 1);
+      argsPtr = rewriter.create<LLVM::AllocaOp>(
+          loc, LLVM::LLVMPointerType::get(context), structTy, one);
+
+      for (auto [i, arg] : llvm::enumerate(adaptor.getArgs())) {
+        Value elemPtr = rewriter.create<LLVM::GEPOp>(
+            loc, LLVM::LLVMPointerType::get(context), structTy, argsPtr,
+            ArrayRef<LLVM::GEPArg>{0, static_cast<int32_t>(i)});
+        rewriter.create<LLVM::StoreOp>(loc, arg, elemPtr);
+      }
+    }
+
+    auto callOp = rewriter.create<LLVM::CallOp>(
+        loc, getVprintfType(context), vprintfRef,
+        ValueRange{formatPtr, argsPtr});
     rewriter.replaceOp(op, callOp.getResult());
     return success();
   }
 };
 
 void populatePrintfToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, RewritePatternSet& patterns) {
-  patterns.add<PrintfOpLowering>(typeConverter, patterns.getContext());
+  patterns.add<
+    PrintfOpHostLowering,
+    PrintfOpNVVMLowering
+  >(typeConverter, patterns.getContext());
 
   populateFinalizeMemRefToLLVMConversionPatterns(typeConverter, patterns);
 }

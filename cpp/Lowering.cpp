@@ -51,6 +51,22 @@ static FlatSymbolRefAttr getOrInsertVprintf(gpu::GPUModuleOp gpuModule,
   return SymbolRefAttr::get(context, "vprintf");
 }
 
+// Extract arguments, converting memrefs to pointers
+static SmallVector<Value> extractArgs(PrintfOp op, PrintfOp::Adaptor adaptor,
+                                       ConversionPatternRewriter &rewriter,
+                                       Location loc) {
+  SmallVector<Value> args;
+  for (auto [origArg, convertedArg] : llvm::zip(op.getArgs(), adaptor.getArgs())) {
+    if (isa<MemRefType>(origArg.getType())) {
+      MemRefDescriptor desc(convertedArg);
+      args.push_back(desc.alignedPtr(rewriter, loc));
+    } else {
+      args.push_back(convertedArg);
+    }
+  }
+  return args;
+}
+
 /// Host lowering: printf.printf -> llvm.call @printf
 struct PrintfOpHostLowering : OpConversionPattern<PrintfOp> {
   using OpConversionPattern::OpConversionPattern;
@@ -70,7 +86,8 @@ struct PrintfOpHostLowering : OpConversionPattern<PrintfOp> {
 
     SmallVector<Value> operands;
     operands.push_back(formatPtr);
-    operands.append(adaptor.getArgs().begin(), adaptor.getArgs().end());
+    for (Value arg : extractArgs(op, adaptor, rewriter, loc))
+      operands.push_back(arg);
 
     auto callOp = rewriter.create<LLVM::CallOp>(
         loc, getPrintfType(rewriter.getContext()), printfRef, operands);
@@ -90,9 +107,6 @@ struct PrintfOpNVVMLowering : OpConversionPattern<PrintfOp> {
     if (!gpuModule)
       return rewriter.notifyMatchFailure(op, "not inside a gpu.module");
 
-    // only match if there's exactly one target and it's NVVM
-    // XXX TODO: how exactly are we supposed to match in a multitarget module?
-    //           when exactly does our pattern get run?
     auto targets = gpuModule.getTargetsAttr();
     if (!targets || targets.size() != 1 || !isa<NVVM::NVVMTargetAttr>(targets[0]))
       return rewriter.notifyMatchFailure(op, "gpu.module does not unambiguously target NVVM");
@@ -104,21 +118,22 @@ struct PrintfOpNVVMLowering : OpConversionPattern<PrintfOp> {
     MemRefDescriptor formatDesc(adaptor.getFormat());
     Value formatPtr = formatDesc.alignedPtr(rewriter, loc);
 
+    SmallVector<Value> args = extractArgs(op, adaptor, rewriter, loc);
+
     Value argsPtr;
-    if (adaptor.getArgs().empty()) {
+    if (args.empty()) {
       argsPtr = rewriter.create<LLVM::ZeroOp>(loc, LLVM::LLVMPointerType::get(context));
     } else {
       SmallVector<Type> argTypes;
-      for (Value arg : adaptor.getArgs()) {
+      for (Value arg : args)
         argTypes.push_back(arg.getType());
-      }
       auto structTy = LLVM::LLVMStructType::getLiteral(context, argTypes);
 
       Value one = rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI64Type(), 1);
       argsPtr = rewriter.create<LLVM::AllocaOp>(
           loc, LLVM::LLVMPointerType::get(context), structTy, one);
 
-      for (auto [i, arg] : llvm::enumerate(adaptor.getArgs())) {
+      for (auto [i, arg] : llvm::enumerate(args)) {
         Value elemPtr = rewriter.create<LLVM::GEPOp>(
             loc, LLVM::LLVMPointerType::get(context), structTy, argsPtr,
             ArrayRef<LLVM::GEPArg>{0, static_cast<int32_t>(i)});
@@ -143,4 +158,4 @@ void populatePrintfToLLVMConversionPatterns(LLVMTypeConverter& typeConverter, Re
   populateFinalizeMemRefToLLVMConversionPatterns(typeConverter, patterns);
 }
 
-}
+} // end mlir::printf

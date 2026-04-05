@@ -26,7 +26,7 @@ MlirOperation printfPrintfOpCreate(MlirLocation loc, MlirValue format,
 
   auto resultType = builder.getI32Type();
 
-  auto printfOp = builder.create<printf::PrintfOp>(
+  auto printfOp = printf::PrintfOp::create(builder, 
       unwrap(loc), resultType, operands);
 
   return wrap(printfOp.getOperation());

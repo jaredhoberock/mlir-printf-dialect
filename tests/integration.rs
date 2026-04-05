@@ -6,6 +6,7 @@ use melior::{
         attribute::{AttributeLike, DenseElementsAttribute, IntegerAttribute, StringAttribute, TypeAttribute},
         Attribute,
         r#type::{FunctionType, IntegerType, MemRefType, RankedTensorType},
+        operation::{OperationLike, OperationMutLike},
         Block, BlockLike, Location, Module, Region, RegionLike,
     },
     pass::{self, PassManager},
@@ -148,7 +149,7 @@ fn test_printf_jit() {
     assert!(pass_manager.run(&mut module).is_ok());
 
     // JIT compile the module
-    let engine = ExecutionEngine::new(&module, 0, &[], false);
+    let engine = ExecutionEngine::new(&module, 0, &[], false, false);
 
     // test that we can call the function and it produces the expected result
     let mut result = [0i32];

@@ -33,7 +33,7 @@ static FlatSymbolRefAttr getOrInsertPrintf(ModuleOp module,
 
   PatternRewriter::InsertionGuard insertGuard(rewriter);
   rewriter.setInsertionPointToStart(module.getBody());
-  rewriter.create<LLVM::LLVMFuncOp>(module.getLoc(), "printf",
+  LLVM::LLVMFuncOp::create(rewriter, module.getLoc(), "printf",
                                     getPrintfType(context));
   return SymbolRefAttr::get(context, "printf");
 }
@@ -46,7 +46,7 @@ static FlatSymbolRefAttr getOrInsertVprintf(gpu::GPUModuleOp gpuModule,
 
   PatternRewriter::InsertionGuard insertGuard(rewriter);
   rewriter.setInsertionPointToStart(gpuModule.getBody());
-  rewriter.create<LLVM::LLVMFuncOp>(gpuModule.getLoc(), "vprintf",
+  LLVM::LLVMFuncOp::create(rewriter, gpuModule.getLoc(), "vprintf",
                                     getVprintfType(context));
   return SymbolRefAttr::get(context, "vprintf");
 }
@@ -89,7 +89,7 @@ struct PrintfOpHostLowering : OpConversionPattern<PrintfOp> {
     for (Value arg : extractArgs(op, adaptor, rewriter, loc))
       operands.push_back(arg);
 
-    auto callOp = rewriter.create<LLVM::CallOp>(
+    auto callOp = LLVM::CallOp::create(rewriter, 
         loc, getPrintfType(rewriter.getContext()), printfRef, operands);
     rewriter.replaceOp(op, callOp.getResult());
     return success();
@@ -122,26 +122,26 @@ struct PrintfOpNVVMLowering : OpConversionPattern<PrintfOp> {
 
     Value argsPtr;
     if (args.empty()) {
-      argsPtr = rewriter.create<LLVM::ZeroOp>(loc, LLVM::LLVMPointerType::get(context));
+      argsPtr = LLVM::ZeroOp::create(rewriter, loc, LLVM::LLVMPointerType::get(context));
     } else {
       SmallVector<Type> argTypes;
       for (Value arg : args)
         argTypes.push_back(arg.getType());
       auto structTy = LLVM::LLVMStructType::getLiteral(context, argTypes);
 
-      Value one = rewriter.create<LLVM::ConstantOp>(loc, rewriter.getI64Type(), 1);
-      argsPtr = rewriter.create<LLVM::AllocaOp>(
+      Value one = LLVM::ConstantOp::create(rewriter, loc, rewriter.getI64Type(), 1);
+      argsPtr = LLVM::AllocaOp::create(rewriter, 
           loc, LLVM::LLVMPointerType::get(context), structTy, one);
 
       for (auto [i, arg] : llvm::enumerate(args)) {
-        Value elemPtr = rewriter.create<LLVM::GEPOp>(
+        Value elemPtr = LLVM::GEPOp::create(rewriter, 
             loc, LLVM::LLVMPointerType::get(context), structTy, argsPtr,
             ArrayRef<LLVM::GEPArg>{0, static_cast<int32_t>(i)});
-        rewriter.create<LLVM::StoreOp>(loc, arg, elemPtr);
+        LLVM::StoreOp::create(rewriter, loc, arg, elemPtr);
       }
     }
 
-    auto callOp = rewriter.create<LLVM::CallOp>(
+    auto callOp = LLVM::CallOp::create(rewriter, 
         loc, getVprintfType(context), vprintfRef,
         ValueRange{formatPtr, argsPtr});
     rewriter.replaceOp(op, callOp.getResult());

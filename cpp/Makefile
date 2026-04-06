@@ -52,7 +52,7 @@ libprintf_dialect.so: $(PLUGIN_OBJECTS)
 .PHONY: test
 test: libprintf_dialect.so
 	@echo "Running printf dialect tests..."
-	./venv/bin/lit tests
+	lit tests
 
 clean:
 	rm -f *.o *.inc *.a *.so

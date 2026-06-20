@@ -4,4 +4,4 @@
 #include <iostream>
 
 #define GET_OP_CLASSES
-#include "Ops.cpp.inc"
+#include <Ops.cpp.inc>

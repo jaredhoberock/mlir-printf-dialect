@@ -2,61 +2,58 @@ ifndef MLIR_SYS_220_PREFIX
 $(error MLIR_SYS_220_PREFIX must be set; point it at your LLVM/MLIR 22 install)
 endif
 
+BUILD_DIR ?= build
+
 LLVM_BIN_PATH := $(MLIR_SYS_220_PREFIX)/bin
 
 LLVM_CONFIG := $(LLVM_BIN_PATH)/llvm-config
 TBLGEN := $(LLVM_BIN_PATH)/mlir-tblgen
-OPT := $(LLVM_BIN_PATH)/mlir-opt
 
-# Compiler flags
 CXX := clang++
-CXXFLAGS := -g -fPIC `$(LLVM_CONFIG) --cxxflags`
+CXXFLAGS := -fPIC $(shell $(LLVM_CONFIG) --cxxflags)
 
-# LLVM/MLIR libraries
-MLIR_INCLUDE := $(MLIR_SYS_220_PREFIX)/include
+INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_220_PREFIX)/include
 
-INCLUDES := -I $(MLIR_INCLUDE)
-
-# Dialect library sources (everything except main)
 DIALECT_SOURCES := c_api.cpp Dialect.cpp Lowering.cpp Ops.cpp
-DIALECT_OBJECTS := $(DIALECT_SOURCES:.cpp=.o)
+DIALECT_OBJECTS := $(addprefix $(BUILD_DIR)/,$(DIALECT_SOURCES:.cpp=.o))
+PLUGIN_OBJECTS := $(DIALECT_OBJECTS) $(BUILD_DIR)/Plugin.o
 
-# Generated files
-GENERATED := Dialect.hpp.inc Dialect.cpp.inc Ops.hpp.inc Ops.cpp.inc
+GENERATED := \
+  $(BUILD_DIR)/Dialect.hpp.inc \
+  $(BUILD_DIR)/Dialect.cpp.inc \
+  $(BUILD_DIR)/Ops.hpp.inc \
+  $(BUILD_DIR)/Ops.cpp.inc
 
-.PHONY: all clean
+.PHONY: all clean test
 
-all: libprintf_dialect.a libprintf_dialect.so
+all: $(BUILD_DIR)/libprintf_dialect.a $(BUILD_DIR)/libprintf_dialect.so
 
-# TableGen rules
-Dialect.hpp.inc: Dialect.td
+$(BUILD_DIR):
+	mkdir -p $@
+
+$(BUILD_DIR)/Dialect.hpp.inc: Dialect.td | $(BUILD_DIR)
 	$(TBLGEN) --gen-dialect-decls $(INCLUDES) $< -o $@
 
-Dialect.cpp.inc: Dialect.td
+$(BUILD_DIR)/Dialect.cpp.inc: Dialect.td | $(BUILD_DIR)
 	$(TBLGEN) --gen-dialect-defs $(INCLUDES) $< -o $@
 
-Ops.hpp.inc: Ops.td
+$(BUILD_DIR)/Ops.hpp.inc: Ops.td | $(BUILD_DIR)
 	$(TBLGEN) --gen-op-decls $(INCLUDES) $< -o $@
 
-Ops.cpp.inc: Ops.td
+$(BUILD_DIR)/Ops.cpp.inc: Ops.td | $(BUILD_DIR)
 	$(TBLGEN) --gen-op-defs $(INCLUDES) $< -o $@
 
-# Object file rules
-%.o: %.cpp $(GENERATED)
+$(BUILD_DIR)/%.o: %.cpp $(GENERATED) | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
 
-libprintf_dialect.a: $(DIALECT_OBJECTS)
+$(BUILD_DIR)/libprintf_dialect.a: $(DIALECT_OBJECTS)
 	ar rcs $@ $^
 
-PLUGIN_OBJECTS := $(DIALECT_OBJECTS) Plugin.o
-
-libprintf_dialect.so: $(PLUGIN_OBJECTS)
+$(BUILD_DIR)/libprintf_dialect.so: $(PLUGIN_OBJECTS)
 	$(CXX) -shared $^ -o $@
 
-.PHONY: test
-test: libprintf_dialect.so
-	@echo "Running printf dialect tests..."
-	lit tests
+test: $(BUILD_DIR)/libprintf_dialect.so
+	PRINTF_DIALECT_PLUGIN=$(CURDIR)/$(BUILD_DIR)/libprintf_dialect.so lit tests
 
 clean:
-	rm -f *.o *.inc *.a *.so
+	rm -rf $(BUILD_DIR)

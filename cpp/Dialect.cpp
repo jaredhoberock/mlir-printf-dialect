@@ -7,7 +7,7 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/OpImplementation.h>
 
-#include "Dialect.cpp.inc"
+#include <Dialect.cpp.inc>
 
 namespace mlir::printf {
 
@@ -24,7 +24,7 @@ struct ConvertToLLVMInterface : public mlir::ConvertToLLVMPatternInterface {
 void PrintfDialect::initialize() {
   addOperations<
 #define GET_OP_LIST
-#include "Ops.cpp.inc"
+#include <Ops.cpp.inc>
   >();
 
   addInterfaces<

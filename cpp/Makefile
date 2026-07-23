@@ -17,6 +17,7 @@ INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_220_PREFIX)/include
 DIALECT_SOURCES := c_api.cpp Dialect.cpp Lowering.cpp Ops.cpp
 DIALECT_OBJECTS := $(addprefix $(BUILD_DIR)/,$(DIALECT_SOURCES:.cpp=.o))
 PLUGIN_OBJECTS := $(DIALECT_OBJECTS) $(BUILD_DIR)/Plugin.o
+DEPS := $(PLUGIN_OBJECTS:.o=.d)
 
 GENERATED := \
   $(BUILD_DIR)/Dialect.hpp.inc \
@@ -44,7 +45,7 @@ $(BUILD_DIR)/Ops.cpp.inc: Ops.td | $(BUILD_DIR)
 	$(TBLGEN) --gen-op-defs $(INCLUDES) $< -o $@
 
 $(BUILD_DIR)/%.o: %.cpp $(GENERATED) | $(BUILD_DIR)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
 
 $(BUILD_DIR)/libprintf_dialect.a: $(DIALECT_OBJECTS)
 	ar rcs $@ $^
@@ -57,3 +58,5 @@ test: $(BUILD_DIR)/libprintf_dialect.so
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+-include $(DEPS)

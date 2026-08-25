@@ -7,6 +7,7 @@
 #include <mlir/Dialect/GPU/IR/GPUDialect.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Dialect/LLVMIR/NVVMDialect.h>
+#include <mlir/Interfaces/FunctionInterfaces.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 namespace mlir::printf {
@@ -129,9 +130,20 @@ struct PrintfOpNVVMLowering : OpConversionPattern<PrintfOp> {
         argTypes.push_back(arg.getType());
       auto structTy = LLVM::LLVMStructType::getLiteral(context, argTypes);
 
-      Value one = LLVM::ConstantOp::create(rewriter, loc, rewriter.getI64Type(), 1);
-      argsPtr = LLVM::AllocaOp::create(rewriter, 
-          loc, LLVM::LLVMPointerType::get(context), structTy, one);
+      // Anchor the argument buffer in the enclosing function's entry block. A
+      // fixed-size alloca is a static allocation only in the entry block;
+      // emitted behind a branch (a printf inside a lowered conditional) it
+      // becomes a dynamic alloca that bars the function from being inlined. The
+      // buffer is filled at the point of use, but its storage is at entry.
+      {
+        OpBuilder::InsertionGuard guard(rewriter);
+        if (auto func = op->getParentOfType<FunctionOpInterface>();
+            func && !func.getFunctionBody().empty())
+          rewriter.setInsertionPointToStart(&func.getFunctionBody().front());
+        Value one = LLVM::ConstantOp::create(rewriter, loc, rewriter.getI64Type(), 1);
+        argsPtr = LLVM::AllocaOp::create(rewriter,
+            loc, LLVM::LLVMPointerType::get(context), structTy, one);
+      }
 
       for (auto [i, arg] : llvm::enumerate(args)) {
         Value elemPtr = LLVM::GEPOp::create(rewriter, 

@@ -27,6 +27,10 @@ fn main() {
     println!("cargo:rustc-link-search=native={}", build_dir.display());
     println!("cargo:rustc-link-lib=static=printf_dialect");
 
+    // The directory the plugin `.so` stands in beside the archive, exposed as
+    // DEP_PRINTF_DIALECT_LIB_DIR to a dependent that links a staged program.
+    println!("cargo:lib_dir={}", build_dir.display());
+
     println!("cargo:rustc-link-arg=-Wl,-rpath,{mlir_prefix}/lib");
 
     println!("cargo:rerun-if-env-changed=MLIR_SYS_220_PREFIX");

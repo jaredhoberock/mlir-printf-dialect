@@ -15,7 +15,6 @@ def PrintfOp : Op<PrintfDialect, "printf", [MemoryEffects<[MemRead, MemWrite]>]>
     The op reads memory and writes the output stream, and declares both on the
     default resource with no value: which memory it reads is the format's to
     say at run time (the format itself, and any buffer a `%s` argument names).
-    The write keeps an op whose result is unused from being erased.
 
     Example:
       printf.printf(%format, %x) : (memref<?xi8>, i32) -> i32

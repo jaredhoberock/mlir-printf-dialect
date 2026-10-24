@@ -1,10 +1,10 @@
-ifndef MLIR_SYS_220_PREFIX
-$(error MLIR_SYS_220_PREFIX must be set; point it at your LLVM/MLIR 22 install)
+ifndef MLIR_SYS_230_PREFIX
+$(error MLIR_SYS_230_PREFIX must be set; point it at your LLVM/MLIR 23 install)
 endif
 
 BUILD_DIR ?= build
 
-LLVM_BIN_PATH := $(MLIR_SYS_220_PREFIX)/bin
+LLVM_BIN_PATH := $(MLIR_SYS_230_PREFIX)/bin
 
 LLVM_CONFIG := $(LLVM_BIN_PATH)/llvm-config
 TBLGEN := $(LLVM_BIN_PATH)/mlir-tblgen
@@ -16,7 +16,7 @@ CXX := clang++
 # default here. Asserts stay on (no -DNDEBUG) -- the dialect verifiers are product.
 CXXFLAGS := -fPIC $(shell $(LLVM_CONFIG) --cxxflags) -O2
 
-INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_220_PREFIX)/include -I$(LOWERING_DRIVER_SOURCE_DIR)
+INCLUDES := -I$(BUILD_DIR) -I. -I$(MLIR_SYS_230_PREFIX)/include -I$(LOWERING_DRIVER_SOURCE_DIR)
 
 DIALECT_SOURCES := c_api.cpp Dialect.cpp Lowering.cpp Ops.cpp
 DIALECT_OBJECTS := $(addprefix $(BUILD_DIR)/,$(DIALECT_SOURCES:.cpp=.o))

@@ -4,7 +4,7 @@ use std::process::Command;
 
 fn main() {
     let mlir_prefix =
-        env::var("MLIR_SYS_220_PREFIX").expect("MLIR_SYS_220_PREFIX must be set");
+        env::var("MLIR_SYS_230_PREFIX").expect("MLIR_SYS_230_PREFIX must be set");
 
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let cpp_dir = crate_dir.join("cpp");
@@ -33,6 +33,6 @@ fn main() {
 
     println!("cargo:rustc-link-arg=-Wl,-rpath,{mlir_prefix}/lib");
 
-    println!("cargo:rerun-if-env-changed=MLIR_SYS_220_PREFIX");
+    println!("cargo:rerun-if-env-changed=MLIR_SYS_230_PREFIX");
     println!("cargo:rerun-if-changed=cpp");
 }

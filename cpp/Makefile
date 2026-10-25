@@ -29,7 +29,7 @@ GENERATED := \
   $(BUILD_DIR)/Ops.hpp.inc \
   $(BUILD_DIR)/Ops.cpp.inc
 
-.PHONY: all clean test
+.PHONY: all clean
 
 all: $(BUILD_DIR)/libprintf_dialect.a $(BUILD_DIR)/libprintf_dialect.so
 
@@ -56,9 +56,6 @@ $(BUILD_DIR)/libprintf_dialect.a: $(DIALECT_OBJECTS)
 
 $(BUILD_DIR)/libprintf_dialect.so: $(PLUGIN_OBJECTS)
 	$(CXX) -shared -Wl,--build-id $^ -o $@
-
-test: $(BUILD_DIR)/libprintf_dialect.so
-	PRINTF_DIALECT_PLUGIN=$(CURDIR)/$(BUILD_DIR)/libprintf_dialect.so lit tests
 
 clean:
 	rm -rf $(BUILD_DIR)

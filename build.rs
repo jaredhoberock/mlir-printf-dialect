@@ -9,6 +9,11 @@ fn main() {
     let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let cpp_dir = crate_dir.join("cpp");
     let build_dir = PathBuf::from(env::var("OUT_DIR").unwrap()).join("cpp");
+    // The dialect compiles against the driver's PermissiveInlinerInterface.hpp
+    // rather than linking it, so this crate depends on the driver crate for its
+    // source directory and recompiles when the driver's headers change.
+    let lowering_driver_source_dir = env::var("DEP_LOWERING_DRIVER_SOURCE_DIR")
+        .expect("DEP_LOWERING_DRIVER_SOURCE_DIR must be set by mlir-lowering-driver");
 
     // Keep generated TableGen files and native objects under Cargo's output
     // directory so profile builds and MLIR-prefix changes cannot share stale
@@ -16,6 +21,7 @@ fn main() {
     let status = Command::new("make")
         .arg("-j")
         .arg(format!("BUILD_DIR={}", build_dir.display()))
+        .arg(format!("LOWERING_DRIVER_SOURCE_DIR={lowering_driver_source_dir}"))
         .current_dir(&cpp_dir)
         .status()
         .expect("Failed to run make in cpp/");
@@ -51,6 +57,7 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=MLIR_SYS_230_PREFIX");
     println!("cargo:rerun-if-changed=cpp");
+    println!("cargo:rerun-if-changed={lowering_driver_source_dir}");
 }
 
 /// The dialect plugins a process loads to hold this crate's dialect, in load
